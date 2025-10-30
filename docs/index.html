@@ -3,127 +3,326 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Přejmenovač faktur</title>
-  <!-- knihovna PDF.js -->
+  <title>Přejmenovač dokumentů</title>
+  <!-- PDF.js library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.min.js"></script>
   <script>
+    // Set worker source for PDF.js
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.worker.min.js";
   </script>
-  <!-- OCR knihovna Tesseract.js -->
+  <!-- Tesseract.js library -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.4/dist/tesseract.min.js"></script>
-  <!-- JSZip pro tvorbu zipu -->
+  <!-- JSZip library for creating ZIP archives -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background: #f9f9f9; }
-    .btn { background:#007bff;color:#fff;border:none;border-radius:4px;padding:8px 16px;margin-top:10px;cursor:pointer; }
-    .btn:disabled{opacity:0.6;cursor:default;}
-  </style>
+    /* Basic reset */
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #f0f4ff 0%, #f7faff 100%);
+      color: #333;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .container {
+      background: #fff;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      max-width: 700px;
+      width: 100%;
+    }
+    h1 {
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      font-size: 1.75rem;
+      color: #1a237e;
+    }
+    p {
+      margin-top: 0.5rem;
+      line-height: 1.5;
+    }
+    #status p, #downloadLinks p {
+      margin: 0.25rem 0;
+      font-size: 0.9rem;
+    }
+    .btn {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      margin-top: 1rem;
+      font-size: 1rem;
+      font-weight: 600;
+      color: #fff;
+      background-color: #3f51b5;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    .btn:hover:not(:disabled) {
+      background-color: #303f9f;
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+    input[type="file"] {
+      margin-top: 1rem;
+    }
+    /* Loader (three pulsing dots) */
+    .loader {
+      display: flex;
+      align-items: center;
+      margin-top: 1rem;
+      height: 1.5rem;
+    }
+    .loader.hidden {
+      display: none;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      margin: 0 4px;
+      background-color: #3f51b5;
+      border-radius: 50%;
+      animation: dotPulse 1s infinite ease-in-out;
+    }
+    .dot:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+    .dot:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+    @keyframes dotPulse {
+      0%, 80%, 100% {
+        transform: scale(0.3);
+        opacity: 0.5;
+      }
+      40% {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+</style>
 </head>
 <body>
-  <h1>Přejmenovač faktur (beta)</h1>
-  <p>
-    Nahrát můžete několik PDF souborů najednou. Aplikace provede OCR a přejmenuje soubory
-    do formátu <strong>YYYY-MM-DD Dodavatel Číslo.pdf</strong>. Nakonec si stáhnete ZIP
-    se všemi přejmenovanými fakturami.
-  </p>
-  <input type="file" id="fileInput" multiple accept="application/pdf"><br>
-  <button class="btn" id="processBtn">Přejmenovat</button>
-  <div id="status"></div>
-  <div id="downloadLinks"></div>
+  <div class="container">
+    <h1>Přejmenovač dokumentů</h1>
+    <p>
+      Vyberte jeden nebo více PDF souborů. Aplikace provede OCR a automaticky přejmenuje
+      dokumenty do formátu <strong>YYYY-MM-DD Dodavatel Číslo.pdf</strong>. Na závěr získáte ZIP
+      s přejmenovanými soubory.
+    </p>
+    <input type="file" id="fileInput" accept="application/pdf" multiple>
+    <button class="btn" id="processBtn">Přejmenovat</button>
+    <div id="loader" class="loader hidden">
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+    </div>
+    <div id="status"></div>
+    <div id="downloadLinks"></div>
+  </div>
 
-<script>
-function normalizeDate(text) {
-  const patterns = [/(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{4})/, /(\d{4})[.\/\-](\d{1,2})[.\/\-](\d{1,2})/];
-  for (const pattern of patterns) {
-    const m = text.match(pattern);
-    if (m) {
-      let d, mth, y;
-      if (m[1].length === 4) { y=+m[1];mth=+m[2];d=+m[3]; }
-      else { d=+m[1];mth=+m[2];y=+m[3]; }
-      return `${y}-${String(mth).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  <script>
+    // Function to normalize and parse dates from text
+    function normalizeDate(text) {
+      // Regex patterns for common date formats (DD.MM.YYYY, YYYY-MM-DD, DD/MM/YYYY, etc.)
+      const datePatterns = [
+        /(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{4})/,
+        /(\d{4})[.\/\-](\d{1,2})[.\/\-](\d{1,2})/
+      ];
+      for (const pattern of datePatterns) {
+        const match = text.match(pattern);
+        if (match) {
+          let day, month, year;
+          if (match[1].length === 4) {
+            // YYYY-MM-DD
+            year = parseInt(match[1], 10);
+            month = parseInt(match[2], 10);
+            day = parseInt(match[3], 10);
+          } else {
+            // DD-MM-YYYY or DD/MM/YYYY
+            day = parseInt(match[1], 10);
+            month = parseInt(match[2], 10);
+            year = parseInt(match[3], 10);
+          }
+          // Pad month and day with leading zeros
+          const m = month.toString().padStart(2, '0');
+          const d = day.toString().padStart(2, '0');
+          return `${year}-${m}-${d}`;
+        }
+      }
+      return null;
     }
-  }
-  return null;
-}
-function extractInvoiceNumber(text) {
-  const patterns=[
-    /(?:číslo|cislo)\s*faktury\s*[:#]?\s*([A-Z0-9\/\-]{3,})/i,
-    /faktura\s*(?:č\.|#)?\s*([A-Z0-9\/\-]{3,})/i,
-    /invoice\s*(?:no\.|number|#)?\s*([A-Z0-9\/\-]{3,})/i];
-  for (const p of patterns) {
-    const m=text.match(p); if (m&&m[1]) return m[1].trim().toUpperCase();
-  }
-  const fallback=text.match(/\b([A-Z]{0,4}[0-9]{2,4}[\/\-][0-9]{2,6}|[0-9]{3,}\/[0-9]{2,4})\b/);
-  return fallback?fallback[1].toUpperCase():null;
-}
-function extractSupplier(text) {
-  const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l);
-  for (let i=0;i<lines.length;i++) {
-    if (/\b(dodavatel|supplier|vystavitel)\b/i.test(lines[i]) && i+1<lines.length) {
-      const c=clean(lines[i+1]); if (c) return c;
-    }
-  }
-  const markers=[/(s\.r\.o\.)/i,/(a\.s\.)/i,/(spol\.)/i,/(gmbh)/i,/(ltd\.)/i];
-  for (const l of lines.slice(0,10)) {
-    for (const mk of markers) if (mk.test(l)) { const c=clean(l); if (c) return c; }
-  }
-  const dom=text.match(/\b([a-z0-9\-]+)\.(cz|sk|com|eu|de)\b/i);
-  return dom ? dom[1][0].toUpperCase()+dom[1].slice(1) : null;
-}
-function clean(line) {
-  let s=line.replace(/\S+@\S+/g,'').replace(/\+?\d[\d\s-]{5,}/g,'')
-            .replace(/\b(ulice|street|ul\.|č\.p\.|psc|zip|budova|building)\b.*$/i,'')
-            .replace(/[^\w\s\.\-]/g,'').trim();
-  return s.length>60?s.slice(0,60).trim():s||null;
-}
-function sanitize(s) { return s.replace(/[\/\\:*?"<>|]/g,'-').replace(/\s{2,}/g,' ').trim(); }
-function buildName(date, supplier, inv) {
-  const parts=[date||'0000-00-00', supplier||'Neznamy-dodavatel', inv||'Bez-cisla'];
-  return sanitize(parts.join(' ') + '.pdf').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-}
 
-document.getElementById('processBtn').addEventListener('click', async () => {
-  const files=Array.from(document.getElementById('fileInput').files);
-  if (!files.length) { alert('Vyberte alespoň jeden PDF soubor.'); return; }
-  document.getElementById('processBtn').disabled=true;
-  const status=document.getElementById('status'), result=document.getElementById('downloadLinks');
-  status.innerHTML=''; result.innerHTML='';
-  const zip=new JSZip();
-  for (const file of files) {
-    status.innerHTML+=`<p>Zpracovávám ${file.name}…</p>`;
-    try {
-      const buffer=await file.arrayBuffer();
-      const pdf=await pdfjsLib.getDocument({data:buffer}).promise;
-      const page=await pdf.getPage(1);
-      const viewport=page.getViewport({scale:2.0});
-      const canvas=document.createElement('canvas');
-      canvas.width=viewport.width; canvas.height=viewport.height;
-      const ctx=canvas.getContext('2d');
-      await page.render({canvasContext:ctx, viewport}).promise;
-      const dataURL=canvas.toDataURL('image/png');
-      const worker=Tesseract.createWorker();
-      await worker.load(); await worker.loadLanguage('ces+eng'); await worker.initialize('ces+eng');
-      const { data: { text } } = await worker.recognize(dataURL);
-      await worker.terminate();
-      const newName=buildName(normalizeDate(text), extractSupplier(text), extractInvoiceNumber(text));
-      zip.file(newName, new Uint8Array(buffer));
-      result.innerHTML+=`<p>${file.name} → <strong>${newName}</strong></p>`;
-    } catch (err) {
-      result.innerHTML+=`<p>${file.name} → <em>chyba: ${err.message}</em></p>`;
+    // Function to extract invoice number from text
+    function extractInvoiceNumber(text) {
+      // Split text into trimmed lines
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      // 1. Check each line containing 'faktura' or 'doklad' for a long alphanumeric sequence (4+ chars).
+      for (const line of lines) {
+        if (/(faktura|doklad)/i.test(line)) {
+          // Skip lines containing 'symbol' (e.g., konstantní nebo variabilní symbol)
+          if (/symbol/i.test(line)) continue;
+          const m = line.match(/([A-Z0-9]{4,})/);
+          if (m) {
+            return m[1].toUpperCase();
+          }
+        }
+      }
+      // 2. Pattern-based search for common labels preceding invoice numbers
+      const invPatterns = [
+        /(?:číslo|cislo)\s*faktury\s*[:#]?\s*([A-Z0-9\/\-]{3,})/i,
+        /faktura\s*(?:-?\s*daňov[yý]?\s*doklad)?\s*(?:č\.|cislo|no\.|number|#)?\s*([A-Z0-9\/\-]{3,})/i,
+        /daňov[yý]?\s*doklad\s*(?:č\.|cislo|no\.|number|#)?\s*([A-Z0-9\/\-]{3,})/i,
+        /invoice\s*(?:no\.|number|#)?\s*([A-Z0-9\/\-]{3,})/i
+      ];
+      for (const pattern of invPatterns) {
+        const m = text.match(pattern);
+        if (m && m[1]) {
+          return m[1].trim().toUpperCase();
+        }
+      }
+      // 3. Fallback: search for patterns like 2023/12345, FA-2023-001, or long alphanumerics (5+)
+      const fallback = text.match(/\b([A-Z]{0,4}[0-9]{2,4}[\/\-][0-9]{2,6}|[0-9]{3,}\/[0-9]{2,4}|[A-Z0-9]{5,})\b/);
+      return fallback ? fallback[1].toUpperCase() : null;
     }
-  }
-  status.innerHTML+='<p>Generuji ZIP…</p>';
-  const blob=await zip.generateAsync({type:'blob'});
-  const link=document.createElement('a');
-  link.href=URL.createObjectURL(blob);
-  link.download='prejmenovane_faktury.zip';
-  link.textContent='Stáhnout ZIP s přejmenovanými fakturami';
-  link.className='btn';
-  result.appendChild(link);
-  status.innerHTML+='<p>Hotovo!</p>';
-  document.getElementById('processBtn').disabled=false;
-});
-</script>
+
+    // Function to extract supplier name from text
+    function extractSupplier(text) {
+      // Try to find line following keywords Dodavatel/Supplier
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i];
+        if (/\b(dodavatel|supplier|vystavitel)\b/i.test(l) && i + 1 < lines.length) {
+          const candidate = cleanCompanyName(lines[i + 1]);
+          if (candidate) return candidate;
+        }
+      }
+      // Heuristic: first line with company-like characteristics (contains s.r.o., a.s., spol., etc.)
+      const companyMarkers = [/(s\.r\.o\.)/i, /(a\.s\.)/i, /(spol\.)/i, /(gmbh)/i, /(ltd\.)/i];
+      for (const l of lines.slice(0, 10)) {
+        for (const marker of companyMarkers) {
+          if (marker.test(l)) {
+            const candidate = cleanCompanyName(l);
+            if (candidate) return candidate;
+          }
+        }
+      }
+      // Fallback: look for domain name
+      const domainMatch = text.match(/\b([a-z0-9\-]+)\.(cz|sk|com|eu|de)\b/i);
+      return domainMatch ? capitalize(domainMatch[1]) : null;
+    }
+
+    // Remove unwanted parts from company line and normalize
+    function cleanCompanyName(line) {
+      let s = line.replace(/\S+@\S+/g, '');
+      s = s.replace(/\+?\d[\d\s\-]{5,}/g, '');
+      s = s.replace(/\b(ulice|street|ul\.|č\.p\.|psc|zip|budova|building)\b.*$/i, '');
+      s = s.replace(/[^\w\s\.\-]/g, '').trim();
+      if (s.length > 60) s = s.slice(0, 60).trim();
+      return s || null;
+    }
+
+    function capitalize(str) {
+      if (!str) return str;
+      return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    function sanitizeFilename(s) {
+      return s
+        .replace(/\//g, '-')
+        .replace(/\\/g, '-')
+        .replace(/[:*?"<>|]/g, '-')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    }
+
+    function buildFilename(dateStr, supplier, invoiceNo) {
+      const parts = [];
+      parts.push(dateStr || '0000-00-00');
+      parts.push(supplier || 'Neznamy-dodavatel');
+      parts.push(invoiceNo || 'Bez-cisla');
+      let name = parts.join(' ') + '.pdf';
+      // Transliterate Czech characters to ASCII using simple mapping
+      name = name
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+      return sanitizeFilename(name);
+    }
+
+    document.getElementById('processBtn').addEventListener('click', async () => {
+      const input = document.getElementById('fileInput');
+      const files = Array.from(input.files);
+      if (!files.length) {
+        alert('Prosím vyberte alespoň jeden PDF soubor.');
+        return;
+      }
+      document.getElementById('processBtn').disabled = true;
+      // Show loader animation
+      const loader = document.getElementById('loader');
+      if (loader) loader.classList.remove('hidden');
+      const statusDiv = document.getElementById('status');
+      const resultDiv = document.getElementById('downloadLinks');
+      statusDiv.innerHTML = '';
+      resultDiv.innerHTML = '';
+      const zip = new JSZip();
+      for (const file of files) {
+        statusDiv.innerHTML += `<p>Zpracovávám ${file.name}…</p>`;
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          const page = await pdfDoc.getPage(1);
+          const viewport = page.getViewport({ scale: 2.0 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+          // Convert canvas to data URL for OCR
+          const dataURL = canvas.toDataURL('image/png');
+          // Initialize Tesseract worker
+          const worker = Tesseract.createWorker();
+          await worker.load();
+          await worker.loadLanguage('ces+eng');
+          await worker.initialize('ces+eng');
+          const { data: { text } } = await worker.recognize(dataURL);
+          await worker.terminate();
+          // Extract info
+          const dateStr = normalizeDate(text);
+          const invoiceNo = extractInvoiceNumber(text);
+          const supplier = extractSupplier(text);
+          const newName = buildFilename(dateStr, supplier, invoiceNo);
+          // Add to zip
+          zip.file(newName, new Uint8Array(arrayBuffer));
+          resultDiv.innerHTML += `<p>${file.name} → <strong>${newName}</strong></p>`;
+        } catch (err) {
+          resultDiv.innerHTML += `<p>${file.name} → <em>chyba: ${err.message}</em></p>`;
+        }
+      }
+      // Generate ZIP for download
+      statusDiv.innerHTML += '<p>Generuji ZIP…</p>';
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const zipUrl = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = zipUrl;
+      link.download = 'prejmenovane_dokumenty.zip';
+      link.textContent = 'Stáhnout ZIP s přejmenovanými dokumenty';
+      link.className = 'btn';
+      resultDiv.appendChild(link);
+      statusDiv.innerHTML += '<p>Hotovo!</p>';
+      // Hide loader animation
+      if (loader) loader.classList.add('hidden');
+      document.getElementById('processBtn').disabled = false;
+    });
+  </script>
 </body>
 </html>
